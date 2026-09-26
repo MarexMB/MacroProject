@@ -43,14 +43,20 @@ def build_connector():
         #fires when there is error that is not showing up in the console
         except Exception as e:
             print("Error in connect is:", e)
-    #this is the event that fires when you enter the champion select phase in the LCU, it writes champ select data to a json file
+
+    #this is heleper function that checks if the enemy team is fully locked in and ready to start the game
+    def decisionCheck(session):
+        if session.get("timer", {}).get("phase") == "FINALIZATION":
+            return False
+        enemyTeam = session.get("enemyTeam", [])
+        if not enemyTeam:
+            return False
+        return all(player.get("championid") != 0 for p in enemyTeam)
+
+    
     @connector.ws.register('/lol-champ-select/v1/session', event_types=('UPDATE',))
     async def champSelectPhase(Connection, event):
-        import json
-        with open("champSelectPhase.json", "a") as f:
-            f.write(json.dumps(event.data, indent=2))
-            f.write("\n\n ---UPDATED--- \n\n")
-            print("champSelectPhase.json updated with new data.", event.data.get("timer", {}).get("phase"))
+        print(f"Champ select phase changed to: {event.data['phase']}")
     #shows when you update your summoner profile in the League Client API
     @connector.ws.register('/lol-summoner/v1/current-summoner', event_types=('UPDATE',))
     async def icon_changed(connection, event):
