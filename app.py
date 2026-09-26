@@ -46,7 +46,7 @@ def build_connector():
 
     #this is heleper function that checks if the enemy team is fully locked in and ready to start the game
     def decisionCheck(session):
-        if session.get("timer", {}).get("phase") == "FINALIZATION":
+        if session.get("timer", {}).get("phase") != "FINALIZATION":
             return False
         enemyTeam = session.get("enemyTeam", [])
         if not enemyTeam:
