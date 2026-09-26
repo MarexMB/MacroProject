@@ -49,7 +49,7 @@ def build_connector():
     def decisionCheck(session):
         if session.get("timer", {}).get("phase") != "FINALIZATION":
             return False
-        enemyTeam = session.get("enemyTeam", [])
+        enemyTeam = session.get("theirId", [])
         if not enemyTeam:
             return False
         return all(p.get("championId") != 0 for p in enemyTeam)
@@ -57,13 +57,12 @@ def build_connector():
     
     @connector.ws.register('/lol-champ-select/v1/session', event_types=('UPDATE',))
     async def champSelectPhase(Connection, event):
-        print(f"Champ select phase changed to: {event.data['phase']}")
         session = event.data
         if session.get("timer", {}).get("phase") != "FINALIZATION":
             rune["done"]= False
         if decisionCheck(session) and not rune["done"]:
-            enemyTeamId = [p["championId"] for p in session.get["enemyTeam"]]
-            print("Enemy championID:", enemyTeamId)
+            enemyTeamId = [p["championId"] for p in session.get["theirTeam"]]
+            print("Enemy championId:", enemyTeamId)
     
     #shows when you update your summoner profile in the League Client API
     @connector.ws.register('/lol-summoner/v1/current-summoner', event_types=('UPDATE',))
