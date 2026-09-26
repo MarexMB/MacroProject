@@ -45,18 +45,26 @@ def build_connector():
             print("Error in connect is:", e)
 
     #this is heleper function that checks if the enemy team is fully locked in and ready to start the game
+    rune = {"done": False}
     def decisionCheck(session):
         if session.get("timer", {}).get("phase") != "FINALIZATION":
             return False
         enemyTeam = session.get("enemyTeam", [])
         if not enemyTeam:
             return False
-        return all(player.get("championid") != 0 for p in enemyTeam)
+        return all(p.get("championId") != 0 for p in enemyTeam)
 
     
     @connector.ws.register('/lol-champ-select/v1/session', event_types=('UPDATE',))
     async def champSelectPhase(Connection, event):
         print(f"Champ select phase changed to: {event.data['phase']}")
+        session = event.data
+        if session.get("timer", {}).get("phase") != "FINALIZATION":
+            rune["done"]= False
+        if decisionCheck(session) and not rune["done"]:
+            enemyTeamId = [p["championId"] for p in session.get["enemyTeam"]]
+            print("Enemy championID:", enemyTeamId)
+    
     #shows when you update your summoner profile in the League Client API
     @connector.ws.register('/lol-summoner/v1/current-summoner', event_types=('UPDATE',))
     async def icon_changed(connection, event):
