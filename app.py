@@ -49,7 +49,7 @@ def build_connector():
     def decisionCheck(session):
         if session.get("timer", {}).get("phase") != "FINALIZATION":
             return False
-        enemyTeam = session.get("theirId", [])
+        enemyTeam = session.get("theirTeam", [])
         if not enemyTeam:
             return False
         return all(p.get("championId") != 0 for p in enemyTeam)
@@ -61,7 +61,8 @@ def build_connector():
         if session.get("timer", {}).get("phase") != "FINALIZATION":
             rune["done"]= False
         if decisionCheck(session) and not rune["done"]:
-            enemyTeamId = [p["championId"] for p in session.get["theirTeam"]]
+            rune["done"] = True
+            enemyTeamId = [p["championId"] for p in session.get("theirTeam", [])]
             print("Enemy championId:", enemyTeamId)
     
     #shows when you update your summoner profile in the League Client API
