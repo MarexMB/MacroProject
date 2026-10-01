@@ -22,10 +22,10 @@ connector_ref = {"connector": None}
 champion_data = {"idToName": {}}
 
 
-
+#this is a set of default traits that are used when a champion is not found in the championTraits dictionary
 DEFAULT_TRAITS = {"kill": True, "stay": True, "body": "squishy", "counter": False}
 COUNTER_WEIGHT = 2
- 
+#this is a set of champions that are considered counters to naafiri, meaning they are strong against her early or late game
 COUNTERS = {
     "Akali",
     "Alistar",
@@ -56,10 +56,10 @@ COUNTERS = {
     "Yunara",
     "Malzahar"
 }
- 
+#this is a helper function that creates a dictionary with the traits of a champion
 def _t(kill, stay, body):
     return {"kill": kill, "stay": stay, "body": body}
- 
+#this is a list of champion and their traits used to determine if they are strong or weak against naafiri
 CHAMPION_TRAITS = {
     "Aatrox": _t(False, True, "bruiser"),
     "Ahri": _t(True, False, "squishy"),
