@@ -19,8 +19,18 @@ gui_ref = {"app": None}
 #holds the current connector, needed because a Connector() can only be started once,
 #after stop() its "used up" so we make a fresh one every time we connect
 connector_ref = {"connector": None}
+champion_data = {"idToName": {}}
 
 
+
+async def loadChampData(connection):
+    try:
+        response = await connection.request('get', '/lol-game-data/assets/v1/champion-summary.json')
+        champions = await response.json()
+        champion_data["idToName"] = {champ["id"]: champ["name"] for champ in champions}
+        print(f"loaded {len(champion_data['idToName'])} champions into cache")
+    except Exception as e:
+        print("Error for loading enemy champs:", e)
 #this builds a brand new connector with all the handlers registered on it
 def build_connector():
     connector = Connector()
@@ -33,12 +43,15 @@ def build_connector():
             pull = await connection.request('get', '/lol-summoner/v1/current-summoner')
             summoner = await pull.json()
             df = pd.DataFrame([summoner])
+
             print(df[['gameName', 'tagLine', 'summonerLevel']])
 
             #hand the dataframe over to the gui thread
             latest_summoner_df["df"] = df[['gameName', 'tagLine', 'summonerLevel']]
             if gui_ref["app"] is not None:
                 gui_ref["app"].on_connected()
+                
+            await loadChampData(connection)
 
         #fires when there is error that is not showing up in the console
         except Exception as e:
@@ -54,6 +67,7 @@ def build_connector():
             return False
         return all(p.get("championId") != 0 for p in enemyTeam)
 
+
     
     @connector.ws.register('/lol-champ-select/v1/session', event_types=('UPDATE',))
     async def champSelectPhase(Connection, event):
@@ -63,7 +77,9 @@ def build_connector():
         if decisionCheck(session) and not rune["done"]:
             rune["done"] = True
             enemyTeamId = [p["championId"] for p in session.get("theirTeam", [])]
+            enemyTeamNames = [champion_data["idToName"].get(cid, f"Unknown({cid})") for cid in enemyTeamId]
             print("Enemy championId:", enemyTeamId)
+            print("Enemy champion names:", enemyTeamNames)
     
     #shows when you update your summoner profile in the League Client API
     @connector.ws.register('/lol-summoner/v1/current-summoner', event_types=('UPDATE',))
