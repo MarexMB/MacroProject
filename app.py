@@ -231,7 +231,23 @@ CHAMPION_TRAITS = {
     "Zoe": _t(True, False, "squishy"),
     "Zyra": _t(True, True, "squishy"),
 }
-
+#this adds a counterr trait for each champion form the counter list thgat i used
+for _name, _traits in CHAMPION_TRAITS.items():
+    _traits["counter"] = _name in COUNTERS
+def get_traits(name):
+    return CHAMPION_TRAITS.get(name, DEFAULT_TRAITS)
+#this takes a list off champs and returns num of champs that cab do sum to naafiri
+def score(names):
+    total = {"can_kill": 0, "cant_kill": 0, "can_stay": 0, "cant_stay": 0,
+             "squishy": 0, "bruiser": 0, "counter": 0}
+    for name in names:
+        t = get_traits(name)
+        total["can_kill" if t["kill"] else "cant_kill"] += 1
+        total["can_stay" if t["stay"] else "cant_stay"] += 1
+        total[t["body"]] += 1
+        if t["counter"]:
+            total["counter"] += COUNTER_WEIGHT
+    return total
 
 async def loadChampData(connection):
     try:
@@ -450,6 +466,7 @@ class SecondPage(ttk.Frame):
         label.pack(pady=20)
 
 #This is the main entry point of the Application. This starts the main event loop
+print(score(["Lux", "Quinn", "Xayah", "Gragas", "Viktor"]))
 if __name__ == "__main__":
     app = App()
     gui_ref["app"] = app
