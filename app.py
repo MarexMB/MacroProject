@@ -257,6 +257,13 @@ async def loadChampData(connection):
         print(f"loaded {len(champion_data['idToName'])} champions into cache")
     except Exception as e:
         print("Error for loading enemy champs:", e)
+
+#temp helper, just prints the ids of every rune page you have in the client
+async def dump_rune_pages(connection):
+    resp = await connection.request('get', '/lol-perks/v1/pages')
+    for p in await resp.json():
+        print(p["name"], "|", p["primaryStyleId"], p["subStyleId"], p["selectedPerkIds"])
+
 #this builds a brand new connector with all the handlers registered on it
 def build_connector():
     connector = Connector()
@@ -278,6 +285,7 @@ def build_connector():
                 gui_ref["app"].on_connected()
                 
             await loadChampData(connection)
+            await dump_rune_pages(connection)
 
         #fires when there is error that is not showing up in the console
         except Exception as e:
