@@ -20,7 +20,8 @@ gui_ref = {"app": None}
 #after stop() its "used up" so we make a fresh one every time we connect
 connector_ref = {"connector": None}
 champion_data = {"idToName": {}}
-
+connection_ref = {"conn": None}
+last_decision = {"enemy": [], "score": None, "page": None}
 
 #this is a set of default traits that are used when a champion is not found in the championTraits dictionary
 DEFAULT_TRAITS = {"kill": True, "stay": True, "body": "squishy", "counter": False}
@@ -231,6 +232,8 @@ CHAMPION_TRAITS = {
     "Zoe": _t(True, False, "squishy"),
     "Zyra": _t(True, True, "squishy"),
 }
+
+
 #this adds a counterr trait for each champion form the counter list thgat i used
 for _name, _traits in CHAMPION_TRAITS.items():
     _traits["counter"] = _name in COUNTERS
@@ -248,6 +251,74 @@ def score(names):
         if t["counter"]:
             total["counter"] += COUNTER_WEIGHT
     return total
+#temp helper, just prints the ids of every rune page you have in the client
+async def dump_rune_pages(connection):
+    resp = await connection.request('get', '/lol-perks/v1/pages')
+    for p in await resp.json():
+        print(p["name"], "|", p["primaryStyleId"], p["subStyleId"], p["selectedPerkIds"])
+
+
+#rune ids for each page. order is: keystone, 3 primary runes, 2 secondary runes, 3 shards
+RUNE_PAGES = {
+    "stay": {
+        "name": "Runity - stay on",
+        "primaryStyleId": 8100,    
+        "subStyleId": 8000,        
+        "selectedPerkIds": [9923, 8143, 8137, 8135, 8009, 8017, 5008, 5008, 5001],
+    },
+    "cantstay": {
+        "name": "Runity - cant stay on",
+        "primaryStyleId": 8100,
+        "subStyleId": 8000,
+        "selectedPerkIds": [8112, 8143, 8137, 8135, 8009, 8017, 5008, 5008, 5001],
+    },
+    "tanks": {
+        "name": "Runity - tanks",
+        "primaryStyleId": 8000,    
+        "subStyleId": 8100,
+        "selectedPerkIds": [8010, 9101, 9104, 8014, 8126, 8106, 5008, 5008, 5011],
+    },
+}
+
+
+#picks the page key based on the enemy team, counters count extra
+def choose_rune_page(names):
+    squishy = bruiser = can_stay = cant_stay = 0
+    for name in names:
+        t = get_traits(name)
+        w = COUNTER_WEIGHT if t["counter"] else 1
+        if t["body"] == "bruiser":
+            bruiser += w
+        else:
+            squishy += w
+        if t["stay"]:
+            can_stay += w
+        else:
+            cant_stay += w
+    print(f"squishy={squishy} bruiser={bruiser} can_stay={can_stay} cant_stay={cant_stay}")
+    if bruiser > squishy:
+        return "tanks"
+    if cant_stay > can_stay:
+        return "cantstay"
+    return "stay"
+
+
+#makes a fresh runity page in the client with the ids we give it and sets it as active
+async def apply_rune_page(connection, page):
+    if page["selectedPerkIds"] is None:
+        print("that page has no rune ids yet, skipping")
+        return
+    try:
+        #get rid of the old runity page first so we don't fill up the page slots
+        resp = await connection.request('get', '/lol-perks/v1/pages')
+        for p in await resp.json():
+            if p.get("name", "").startswith("Runity"):
+                await connection.request('delete', f"/lol-perks/v1/pages/{p['id']}")
+        result = await connection.request('post', '/lol-perks/v1/pages', json={**page, "current": True})
+        print(f"made rune page '{page['name']}', status:", result.status)
+    except Exception as e:
+        print("couldn't apply the rune page:", e)
+
 
 async def loadChampData(connection):
     try:
@@ -258,11 +329,9 @@ async def loadChampData(connection):
     except Exception as e:
         print("Error for loading enemy champs:", e)
 
-#temp helper, just prints the ids of every rune page you have in the client
-async def dump_rune_pages(connection):
+async def fetch_rune_pages(connection):
     resp = await connection.request('get', '/lol-perks/v1/pages')
-    for p in await resp.json():
-        print(p["name"], "|", p["primaryStyleId"], p["subStyleId"], p["selectedPerkIds"])
+    return await resp.json()
 
 #this builds a brand new connector with all the handlers registered on it
 def build_connector():
@@ -272,6 +341,7 @@ def build_connector():
     async def connect(connection):
         try:
             print("You connected to the League Client API")
+            connection_ref["conn"] = connection
             #pulling summoner data from the League Client API
             pull = await connection.request('get', '/lol-summoner/v1/current-summoner')
             summoner = await pull.json()
@@ -285,7 +355,7 @@ def build_connector():
                 gui_ref["app"].on_connected()
                 
             await loadChampData(connection)
-            await dump_rune_pages(connection)
+            
 
         #fires when there is error that is not showing up in the console
         except Exception as e:
@@ -304,16 +374,27 @@ def build_connector():
 
     
     @connector.ws.register('/lol-champ-select/v1/session', event_types=('UPDATE',))
-    async def champSelectPhase(Connection, event):
+    async def champSelectPhase(connection, event):
         session = event.data
         if session.get("timer", {}).get("phase") != "FINALIZATION":
-            rune["done"]= False
+            rune["done"] = False
         if decisionCheck(session) and not rune["done"]:
             rune["done"] = True
             enemyTeamId = [p["championId"] for p in session.get("theirTeam", [])]
             enemyTeamNames = [champion_data["idToName"].get(cid, f"Unknown({cid})") for cid in enemyTeamId]
             print("Enemy championId:", enemyTeamId)
             print("Enemy champion names:", enemyTeamNames)
+            print("Enemy score:", score(enemyTeamNames))
+
+            #only touch runes if we're on naafiri
+            myCell = session.get("localPlayerCellId")
+            myChampId = next((p["championId"] for p in session.get("myTeam", []) if p.get("cellId") == myCell), 0)
+            if champion_data["idToName"].get(myChampId) == "Naafiri":
+                pageKey = choose_rune_page(enemyTeamNames)
+                print("Chosen rune page:", pageKey)
+                await apply_rune_page(connection, RUNE_PAGES[pageKey])
+            else:
+                print("Not playing Naafiri, leaving runes alone")
     
     #shows when you update your summoner profile in the League Client API
     @connector.ws.register('/lol-summoner/v1/current-summoner', event_types=('UPDATE',))
@@ -465,16 +546,57 @@ class MainPage(ttk.Frame):
 
 #this is the second page
 class SecondPage(ttk.Frame):
-    #empty for now, made so it can be filled in later when i will be making ai rune importer
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        #This is just a placeholder
-        label = ttk.Label(self, text="Rune Importer", font=("Segoe UI", 14, "bold"))
-        label.pack(pady=20)
+
+        ttk.Label(self, text="Rune Pages", font=("Segoe UI", 14, "bold")).pack(pady=10)
+
+        self.decision_label = ttk.Label(self, text="No champ select analysed yet", justify="left", wraplength=460)
+        self.decision_label.pack(pady=5, padx=10, anchor="w")
+
+        columns = ("name", "primary", "secondary")
+        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=8)
+        for col, text in zip(columns, ("Page name", "Primary style", "Secondary style")):
+            self.tree.heading(col, text=text)
+            self.tree.column(col, width=150, anchor="center")
+        self.tree.pack(pady=10, fill="x", padx=10)
+
+        ttk.Button(self, text="Refresh from client", command=self.refresh).pack(pady=5)
+        self.info_label = ttk.Label(self, text="")
+        self.info_label.pack()
+
+    def refresh(self):
+        conn = connection_ref["conn"]
+        loop = connector_loop_ref["loop"]
+        if conn is None or loop is None:
+            self.info_label.config(text="Not connected to the client")
+            return
+        future = asyncio.run_coroutine_threadsafe(fetch_rune_pages(conn), loop)
+        future.add_done_callback(lambda f: self.after(0, self._fill, f))
+
+    def _fill(self, future):
+        try:
+            pages = future.result()
+        except Exception as e:
+            self.info_label.config(text=f"Error: {e}")
+            return
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        for p in pages:
+            self.tree.insert("", "end", values=(p["name"], p["primaryStyleId"], p["subStyleId"]))
+        self.info_label.config(text=f"{len(pages)} pages loaded")
+
+    def show_decision(self):
+        s = last_decision["score"]
+        if s is None:
+            return
+        text = (f"Enemy: {', '.join(last_decision['enemy'])}\n"
+                f"Squishy: {s['squishy']} | Bruiser: {s['bruiser']} | Counters: {s['counter']}\n"
+                f"Chosen page: {last_decision['page'] or 'none (not Naafiri)'}")
+        self.decision_label.config(text=text)
 
 #This is the main entry point of the Application. This starts the main event loop
-print(score(["Lux", "Quinn", "Xayah", "Gragas", "Viktor"]))
 if __name__ == "__main__":
     app = App()
     gui_ref["app"] = app
